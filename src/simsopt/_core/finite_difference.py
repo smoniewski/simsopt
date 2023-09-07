@@ -29,10 +29,11 @@ from .types import RealArray
 from .dev import SimsoptRequires
 from .optimizable import Optimizable
 from .util import finite_difference_steps
+from .._core.derivative import derivative_dec
 
 logger = logging.getLogger(__name__)
 
-__all__ = ['FiniteDifference']
+__all__ = ['FiniteDifference', 'MPIFiniteDifference', 'MPIObjective_Autonomous','MPIObjective_Autonomous1']
 
 
 class FiniteDifference:
@@ -83,15 +84,16 @@ class FiniteDifference:
         jac = np.zeros(self.jac_size)
         steps = finite_difference_steps(x0, abs_step=self.abs_step,
                                         rel_step=self.rel_step)
+        print(len(steps))
         if self.diff_method == "centered":
             # Centered differences:
             for j in range(len(x0)):
                 x = np.copy(x0)
-
+            
                 x[j] = x0[j] + steps[j]
                 self.opt.x = x
                 fplus = np.asarray(self.fn())
-
+                
                 x[j] = x0[j] - steps[j]
                 self.opt.x = x
                 fminus = np.asarray(self.fn())
@@ -207,6 +209,7 @@ class MPIFiniteDifference:
 
         x0 = np.copy(opt.x)
         nparams = opt.dof_size
+        print("opt_dof_size", opt.dof_size)
         # Make sure all leaders have the same x0.
         mpi.comm_leaders.Bcast(x0)
         logger.info(f'nparams: {nparams}')
@@ -261,10 +264,9 @@ class MPIFiniteDifference:
 
                 evals[:, j] = out
                 # evals[:, j] = np.array([f() for f in dofs.funcs])
-
         # Combine the results from all groups:
         evals = mpi.comm_leaders.reduce(evals, op=mpi4py.MPI.SUM, root=0)
-
+        
         if not mpi.is_apart:
             mpi.stop_workers()
         # Only proc0_world will actually have the Jacobian.
@@ -295,16 +297,17 @@ class MPIFiniteDifference:
             We have to take a "data" argument, but there is only 1 task we
             would do, so we don't use it.
             """
-        logger.debug('mpi leaders task')
-
+        print("In normal mpi_leaders_task", self.opt.full_dof_size)
         # x is a buffer for receiving the state vector:
         full_x = np.empty(self.opt.full_dof_size, dtype='d')
         # If we make it here, we must be doing a fd_jac_par
         # calculation, so receive the state vector: mpi4py has
         # separate bcast and Bcast functions!!  comm.Bcast(x,
         # root=0)
+        print("len full_x before broadcast", len(full_x))
         full_x = self.mpi.comm_leaders.bcast(full_x, root=0)
         logger.debug(f'mpi leaders loop full_x={full_x}')
+        print("len full_x", len(full_x))
         self.opt.full_x = full_x
         self._jac()
 
@@ -313,7 +316,7 @@ class MPIFiniteDifference:
             Note: func is a method of opt.
             """
         logger.debug('mpi workers task')
-
+        print("In normal mpi_workers_task")
         # x is a buffer for receiving the state vector:
         x = np.empty(self.opt.dof_size, dtype='d')
         # If we make it here, we must be doing a fd_jac_par
@@ -347,7 +350,7 @@ class MPIFiniteDifference:
             if x is None:
                 x = self.x0
             self.mpi.mobilize_workers(ARB_VAL)
-            self.mpi.comm_groups.bcast(x, root=0)
+            x = self.mpi.comm_groups.bcast(x, root=0)
             self.opt.x = x
             out = self.fn()
             if not isinstance(out, (np.ndarray, collections.abc.Sequence)):
@@ -361,7 +364,6 @@ class MPIFiniteDifference:
         full_x = self.opt.full_x
         self.mpi.comm_leaders.bcast(full_x, root=0)
         self.opt.full_x = full_x
-
         jac, xs, evals = self._jac(x)
         logger.debug(f'jac is {jac}')
 
@@ -391,3 +393,86 @@ class MPIFiniteDifference:
         self.jac_cache = jac
 
         return jac
+
+class ParallelFiniteDifference:
+    
+    def __init__(self,
+                 comm,
+                 func: Callable,
+                 x0: RealArray =None, 
+                 abs_step: Real = 1.0e-7,
+                 rel_step: Real = 0.0,
+                 diff_method: str = "forward",
+                 needs_splitting=False):
+
+        try:
+            if not isinstance(func.__self__, Optimizable):
+                raise TypeError("Function supplied should be a method of Optimizable")
+        except:
+            raise TypeError("Function supplied should be a method of Optimizable")
+        
+
+        self.fn = func
+        self.opt = func.__self__
+        x0 = np.asarray(x0) if x0 is not None else x0
+        self.x0 = x0 if x0 is not None else self.opt.x
+        self.comm = comm
+        self.abs_step = abs_step
+        self.rel_step = rel_step
+        self.diff_method = diff_method
+        self.n = len(self.x0) 
+        if needs_splitting:
+            from simsopt._core.util import parallel_loop_bounds
+            self.startidx, self.endidx = parallel_loop_bounds(comm, self.n)
+        self.jac_size = None
+
+    def jac(self, x: RealArray = None) -> RealArray:
+        if x is not None:
+            self.x0 = np.asarray(x)
+        x0 = self.x0
+        
+        opt_x0 = x0
+
+        if self.jac_size is None:
+            out = self.fn()
+            if not isinstance(out, (np.ndarray, collections.abc.Sequence)):
+                out = [out]
+            self.jac_size = (len(out), self.opt.dof_size)
+
+        jac = np.zeros(self.jac_size)
+        steps = finite_difference_steps(x0, abs_step=self.abs_step,
+                                        rel_step=self.rel_step)
+        if self.diff_method == "centered":
+            # Centered differences:
+            for j in range(self.startidx, self.endidx):
+                x = np.copy(x0)
+
+                x[j] = x0[j] + steps[j]
+                self.opt.x = x
+                fplus = np.asarray(self.fn())
+
+                x[j] = x0[j] - steps[j]
+                self.opt.x = x
+                fminus = np.asarray(self.fn())
+
+                jac[:, j] = (fplus - fminus) / (2 * steps[j])
+
+            jac = self.comm.allreduce(jac, op = mpi4py.MPI.SUM)
+
+        elif self.diff_method == "forward":
+            # 1-sided differences
+            self.opt.x = x0
+            f0 = np.asarray(self.fn())
+            for j in range(self.startidx, self.endidx):
+                x = np.copy(x0)
+                x[j] = x0[j] + steps[j]
+                self.opt.x = x
+                fplus = np.asarray(self.fn())
+
+                jac[:, j] = (fplus - f0) / steps[j]
+            jac = self.comm.allreduce(jac, op = mpi4py.MPI.SUM)
+        # Set the opt.x to the original x
+        self.opt.x = opt_x0
+
+        return jac
+            
