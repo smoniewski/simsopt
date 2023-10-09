@@ -55,6 +55,19 @@ torsionvjp1 = jit(lambda d1gamma, d2gamma, d3gamma, v: vjp(lambda d2g: torsion_p
 torsionvjp2 = jit(lambda d1gamma, d2gamma, d3gamma, v: vjp(lambda d3g: torsion_pure(d1gamma, d2gamma, d3g), d3gamma)[1](v)[0])
 
 
+def gradMajorRadius_pure(dofs, order, target):
+    # print("DOFSGRAD:", dofs)
+    grad = np.zeros(len(dofs))
+    denominator = (np.sqrt(dofs[0]**2 + dofs[2*order+1]**2))
+    grad_x = dofs[0]/denominator*np.sign(denominator - target)
+    grad[0] = grad_x
+    grad_y = (dofs[2*order+1]/denominator)*np.sign(denominator - target)
+    grad[2*order+1] = grad_y
+    #print("GRAD:",grad)
+    return(grad)
+
+
+
 class Curve(Optimizable):
     """
     Curve  is a base class for various representations of curves in SIMSOPT
@@ -64,7 +77,8 @@ class Curve(Optimizable):
 
     def __init__(self, **kwargs):
         Optimizable.__init__(self, **kwargs)
-
+        
+    
     def recompute_bell(self, parent=None):
         """
         For derivative classes of Curve, all of which also subclass
@@ -410,6 +424,11 @@ class Curve(Optimizable):
                     - 5 * d1_dot_d2 * norm_d1_x_d2 * d1_dot_d1coeff/normdgamma**7
             )
         return dkappadash_by_dcoeff
+    def gradMajorRadius(self,u, v):
+        """v is the order of the curve"""
+        self.gradMajorRadius_jax = lambda dofs, order, target: gradMajorRadius_pure(dofs, order, target)
+        return(Derivative({self: self.gradMajorRadius_jax(self.full_x, u, v)}))
+
 
 
 class JaxCurve(sopp.Curve, Curve):
@@ -448,6 +467,7 @@ class JaxCurve(sopp.Curve, Curve):
         self.dkappa_by_dcoeff_vjp_jax = jit(lambda x, v: vjp(lambda d: kappa_pure(self.gammadash_jax(d), self.gammadashdash_jax(d)), x)[1](v)[0])
 
         self.dtorsion_by_dcoeff_vjp_jax = jit(lambda x, v: vjp(lambda d: torsion_pure(self.gammadash_jax(d), self.gammadashdash_jax(d), self.gammadashdashdash_jax(d)), x)[1](v)[0])
+
 
     def set_dofs(self, dofs):
         self.local_x = dofs

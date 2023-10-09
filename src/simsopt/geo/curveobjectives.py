@@ -5,13 +5,15 @@ from jax import grad
 import jax.numpy as jnp
 
 from .jit import jit
+from .._core.types import RealArray
 from .._core.optimizable import Optimizable
 from .._core.derivative import derivative_dec, Derivative
 import simsoptpp as sopp
 
+
 __all__ = ['CurveLength', 'LpCurveCurvature', 'LpCurveTorsion',
            'CurveCurveDistance', 'CurveSurfaceDistance', 'ArclengthVariation',
-           'MeanSquaredCurvature', 'LinkingNumber']
+           'MeanSquaredCurvature', 'LinkingNumber', 'MeanMajorRadius']
 
 
 @jit
@@ -350,6 +352,7 @@ class CurveSurfaceDistance(Optimizable):
             dgamma_by_dcoeff_vjp_vecs[i] += self.thisgrad0(gammac, lc, gammas, ns)
             dgammadash_by_dcoeff_vjp_vecs[i] += self.thisgrad1(gammac, lc, gammas, ns)
         res = [self.curves[i].dgamma_by_dcoeff_vjp(dgamma_by_dcoeff_vjp_vecs[i]) + self.curves[i].dgammadash_by_dcoeff_vjp(dgammadash_by_dcoeff_vjp_vecs[i]) for i in range(len(self.curves))]
+        
         return sum(res)
 
     return_fn_map = {'J': J, 'dJ': dJ}
@@ -525,3 +528,46 @@ class LinkingNumber(Optimizable):
     @derivative_dec
     def dJ(self):
         return Derivative({})
+    
+def gradfunction(x0, order, curves, n):
+    grad = np.zeros(len(x0))
+    c_dof_len = 3*(2*order+1)
+    for i in range(len(curves)):
+        denominator = (n*np.sqrt(x0[n-1+i*c_dof_len]**2 + x0[2*order+n+c_dof_len*i]**2))
+        grad[n-1+i*c_dof_len] = (x0[n-1+i*c_dof_len]/denominator)
+        grad[2*order+n+c_dof_len*i] = (x0[2*order+n+c_dof_len*i]/denominator)
+    #print("Derivative MMR:", grad)
+    return(grad)
+
+
+class MeanMajorRadius(Optimizable):
+
+    def __init__(self, curve, target = 0,
+                 mode_order = 6):
+        Optimizable.__init__(self, depends_on=[curve])
+        self.curve = curve
+        # new_dofs = np.zeros(len(dofs))
+        # for i in range(len(dofs)):
+        #     new_dofs[i] = dofs[i]
+        self.order = mode_order
+        self.target = target
+        
+
+    def J(self):
+        dofs = self.curve.full_x
+        cos_radius = dofs[0]
+        sin_radius = dofs[2*self.order+1]
+        major_radius = np.sqrt(cos_radius**2+sin_radius**2)
+        return np.abs(major_radius - self.target)
+    
+
+    @derivative_dec
+    def dJ(self):
+        #return Derivative({self: lambda x0: gradfunction(x0, self.order, self.curves, self.n)})
+        return self.curve.gradMajorRadius(self.order, self.target) 
+            
+
+        
+         
+
+
