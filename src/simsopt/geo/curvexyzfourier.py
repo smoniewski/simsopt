@@ -188,17 +188,23 @@ class CurveXYZFourier(sopp.CurveXYZFourier, Curve):
             coils[ic].local_x = np.concatenate(dofs)
         return coils
 
-    def fixed_range(self, cmin=0, cmax=6, smin=1, smax=6, fixed = True):
-        fn = self.fix if fixed else self.unfix
+    def fixed_range(self, cmin=0, cmax=6, smin=1, smax=6, fix = True):
+        fn = self.fix if fix else self.unfix
+        check = self.is_fixed if not fix else self.is_free
         for kc in range(cmin, cmax + 1):
-                fn(f'xc({kc})')
-                fn(f'yc({kc})')
-                fn(f'zc({kc})')
+                if check(f'xc({kc})'):
+                    fn(f'xc({kc})')
+                if check(f'yc({kc})'):
+                    fn(f'yc({kc})')
+                if check(f'zc({kc})'):
+                    fn(f'zc({kc})')
         for ls in range(smin, smax + 1):
-                fn(f'xs({ls})')
-                fn(f'ys({ls})')
-                fn(f'zs({ls})')
-
+                if check(f'xs({ls})'):
+                    fn(f'xs({ls})')
+                if check(f'ys({ls})'):
+                    fn(f'ys({ls})')
+                if check(f'zs({ls})'):  
+                    fn(f'zs({ls})')
 
 def jaxfouriercurve_pure(dofs, quadpoints, order):
     k = len(dofs)//3
