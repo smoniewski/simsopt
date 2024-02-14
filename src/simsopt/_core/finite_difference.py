@@ -33,7 +33,7 @@ from .._core.derivative import derivative_dec
 
 logger = logging.getLogger(__name__)
 
-__all__ = ['FiniteDifference', 'MPIFiniteDifference', 'MPIObjective_Autonomous','MPIObjective_Autonomous1']
+__all__ = ['FiniteDifference', 'MPIFiniteDifference', 'ParallelFiniteDifference']
 
 
 class FiniteDifference:
@@ -84,7 +84,7 @@ class FiniteDifference:
         jac = np.zeros(self.jac_size)
         steps = finite_difference_steps(x0, abs_step=self.abs_step,
                                         rel_step=self.rel_step)
-        print(len(steps))
+        \
         if self.diff_method == "centered":
             # Centered differences:
             for j in range(len(x0)):
@@ -209,7 +209,7 @@ class MPIFiniteDifference:
 
         x0 = np.copy(opt.x)
         nparams = opt.dof_size
-        print("opt_dof_size", opt.dof_size)
+
         # Make sure all leaders have the same x0.
         mpi.comm_leaders.Bcast(x0)
         logger.info(f'nparams: {nparams}')
@@ -266,7 +266,6 @@ class MPIFiniteDifference:
                 # evals[:, j] = np.array([f() for f in dofs.funcs])
         # Combine the results from all groups:
         evals = mpi.comm_leaders.reduce(evals, op=mpi4py.MPI.SUM, root=0)
-        
         if not mpi.is_apart:
             mpi.stop_workers()
         # Only proc0_world will actually have the Jacobian.
@@ -297,17 +296,15 @@ class MPIFiniteDifference:
             We have to take a "data" argument, but there is only 1 task we
             would do, so we don't use it.
             """
-        print("In normal mpi_leaders_task", self.opt.full_dof_size)
         # x is a buffer for receiving the state vector:
         full_x = np.empty(self.opt.full_dof_size, dtype='d')
         # If we make it here, we must be doing a fd_jac_par
         # calculation, so receive the state vector: mpi4py has
         # separate bcast and Bcast functions!!  comm.Bcast(x,
         # root=0)
-        print("len full_x before broadcast", len(full_x))
+
         full_x = self.mpi.comm_leaders.bcast(full_x, root=0)
         logger.debug(f'mpi leaders loop full_x={full_x}')
-        print("len full_x", len(full_x))
         self.opt.full_x = full_x
         self._jac()
 
@@ -316,7 +313,6 @@ class MPIFiniteDifference:
             Note: func is a method of opt.
             """
         logger.debug('mpi workers task')
-        print("In normal mpi_workers_task")
         # x is a buffer for receiving the state vector:
         x = np.empty(self.opt.dof_size, dtype='d')
         # If we make it here, we must be doing a fd_jac_par
@@ -468,11 +464,10 @@ class ParallelFiniteDifference:
                 x[j] = x0[j] + steps[j]
                 self.opt.x = x
                 fplus = np.asarray(self.fn())
-
+                #print("This is processor:", self.comm.rank, "with f0=", f0, " and fplus=", fplus)
                 jac[:, j] = (fplus - f0) / steps[j]
             jac = self.comm.allreduce(jac, op = mpi4py.MPI.SUM)
         # Set the opt.x to the original x
         self.opt.x = opt_x0
-
         return jac
             

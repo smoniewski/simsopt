@@ -13,7 +13,7 @@ import simsoptpp as sopp
 
 __all__ = ['CurveLength', 'LpCurveCurvature', 'LpCurveTorsion',
            'CurveCurveDistance', 'CurveSurfaceDistance', 'ArclengthVariation',
-           'MeanSquaredCurvature', 'LinkingNumber', 'MeanMajorRadius']
+           'MeanSquaredCurvature', 'LinkingNumber', 'MeanMajorRadius', 'WeaveLaneMinorRadius']
 
 
 @jit
@@ -546,9 +546,6 @@ class MeanMajorRadius(Optimizable):
                  mode_order = 6):
         Optimizable.__init__(self, depends_on=[curve])
         self.curve = curve
-        # new_dofs = np.zeros(len(dofs))
-        # for i in range(len(dofs)):
-        #     new_dofs[i] = dofs[i]
         self.order = mode_order
         self.target = target
         
@@ -563,11 +560,30 @@ class MeanMajorRadius(Optimizable):
 
     @derivative_dec
     def dJ(self):
-        #return Derivative({self: lambda x0: gradfunction(x0, self.order, self.curves, self.n)})
         return self.curve.gradMajorRadius(self.order, self.target) 
             
 
+class WeaveLaneMinorRadius(Optimizable):
         
-         
+    def __init__(self, curve, target = 0,
+                 mode_order = 6):
+        Optimizable.__init__(self, depends_on=[curve])
+        self.curve = curve
+        self.order = mode_order
+        self.target = target
+        
+
+    def J(self):
+        dofs = self.curve.full_x
+        cos_minor = dofs[1]
+        sin_minor = dofs[2*self.order+2]
+        minor_radius = np.sqrt(cos_minor**2+sin_minor**2)
+        return np.abs(minor_radius - self.target)
+    
+
+    @derivative_dec
+    def dJ(self):
+        return self.curve.gradWLMinorRadius(self.order, self.target) 
+            
 
 

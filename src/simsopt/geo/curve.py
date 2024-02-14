@@ -66,6 +66,17 @@ def gradMajorRadius_pure(dofs, order, target):
     #print("GRAD:",grad)
     return(grad)
 
+def gradWLMinorRadius_pure(dofs, order, target):
+    # print("DOFSGRAD:", dofs)
+    grad = np.zeros(len(dofs))
+    denominator = (np.sqrt(dofs[1]**2 + dofs[2*order+2]**2))
+    grad_x = dofs[1]/denominator*np.sign(denominator - target)
+    grad[1] = grad_x
+    grad_y = (dofs[2*order+2]/denominator)*np.sign(denominator - target)
+    grad[2*order+2] = grad_y
+    #print("GRAD:",grad)
+    return(grad)
+
 
 
 class Curve(Optimizable):
@@ -425,6 +436,10 @@ class Curve(Optimizable):
         self.gradMajorRadius_jax = lambda dofs, order, target: gradMajorRadius_pure(dofs, order, target)
         return(Derivative({self: self.gradMajorRadius_jax(self.full_x, u, v)}))
 
+    def gradWLMinorRadius(self,u, v):
+        """v is the order of the curve"""
+        self.gradWLR_jax = lambda dofs, order, target: gradWLMinorRadius_pure(dofs, order, target)
+        return(Derivative({self: self.gradWLR_jax(self.full_x, u, v)}))
 
 
 class JaxCurve(sopp.Curve, Curve):
