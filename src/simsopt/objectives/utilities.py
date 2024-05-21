@@ -73,7 +73,7 @@ class MPIObjective(Optimizable):
         self.objectives = objectives
         self.comm = comm
         self.n = len(self.objectives) if comm is None else np.sum(self.comm.allgather(len(self.objectives)))
-
+        
     def J(self):
         local_vals = [J.J() for J in self.objectives]
         global_vals = local_vals if self.comm is None else [i for o in self.comm.allgather(local_vals) for i in o]
